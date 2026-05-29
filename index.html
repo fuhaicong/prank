@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>系统诊断工具 v3.7.2</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a0a;
+    color: #0f0;
+    font-family: 'Courier New', Consolas, monospace;
+    overflow-x: hidden;
+    min-height: 100vh;
+  }
+  #matrix {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 0; opacity: 0.15;
+  }
+  #terminal {
+    position: relative; z-index: 1;
+    max-width: 800px; margin: 0 auto; padding: 30px 20px;
+    font-size: 15px; line-height: 1.7;
+    min-height: 100vh;
+  }
+  .line { opacity: 0; animation: fadeIn 0.1s forwards; margin: 2px 0; word-break: break-all; }
+  @keyframes fadeIn { to { opacity: 1; } }
+  .blink { animation: blink 1s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  .cursor { display: inline-block; width: 10px; height: 18px; background: #0f0; vertical-align: middle; }
+  .dim { color: #0a0; }
+  .red { color: #f44; }
+  .yellow { color: #ff0; }
+  .cyan { color: #0ff; }
+  .magenta { color: #f0f; }
+  .white { color: #fff; }
+  progress {
+    width: 100%; height: 16px; margin: 8px 0;
+    appearance: none; -webkit-appearance: none;
+  }
+  progress::-webkit-progress-bar { background: #111; border: 1px solid #0f0; }
+  progress::-webkit-progress-value { background: #0f0; }
+  progress::-moz-progress-bar { background: #0f0; }
+  .data-block {
+    border: 1px solid #0f0; padding: 12px; margin: 10px 0;
+    background: rgba(0,255,0,0.03);
+  }
+  #reveal {
+    display: none; text-align: center; padding: 40px 20px;
+    position: relative; z-index: 2;
+  }
+  #reveal h1 { font-size: 3em; color: #ff0; text-shadow: 0 0 20px #ff0; animation: shake 0.5s infinite; }
+  @keyframes shake {
+    0%,100%{transform:translate(0)} 25%{transform:translate(-5px,2px)} 50%{transform:translate(3px,-2px)} 75%{transform:translate(-2px,-3px)}
+  }
+  #reveal .emoji { font-size: 80px; }
+  #reveal p { color: #fff; font-size: 1.2em; margin: 10px 0; }
+  #reveal .sub { color: #aaa; font-size: 0.9em; }
+  .btn {
+    display: inline-block; margin: 10px; padding: 12px 24px;
+    background: #0f0; color: #000; border: none; border-radius: 4px;
+    font-size: 16px; font-weight: bold; cursor: pointer; text-decoration: none;
+    font-family: inherit;
+  }
+  .btn:hover { background: #fff; }
+  .btn.tw { background: #1da1f2; color: #fff; }
+  .btn.tw:hover { background: #0d8bd9; }
+
+  /* Mobile responsive */
+  @media (max-width: 600px) {
+    #terminal { font-size: 12px; padding: 15px 10px; }
+    #reveal h1 { font-size: 1.8em; }
+    .btn { padding: 10px 16px; font-size: 14px; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="matrix"></canvas>
+
+<div id="terminal"></div>
+
+<div id="reveal">
+  <div class="emoji">🤡</div>
+  <h1>你被整蛊了！</h1>
+  <p>这只是一个恶作剧网页，你的电脑很安全 😂</p>
+  <p class="sub">上面那些"数据"全是瞎编的，根本没有获取到任何信息</p>
+  <p class="sub">—— 来自你那位损友的问候</p>
+  <br>
+  <button class="btn" onclick="location.reload()">🔄 再看一遍</button>
+  <button class="btn" id="shareBtn">📋 复制链接去整别人</button>
+  <span id="copyMsg" style="color:#0f0;display:none;margin-left:10px;">已复制！</span>
+  <br><br>
+  <p class="sub" style="font-size:0.75em;">在链接后面加 ?name=名字 可以自定义目标哦</p>
+</div>
+
+<script>
+// ── Get target name from URL ──
+const params = new URLSearchParams(window.location.search);
+const targetName = params.get('name') || '未知用户';
+
+// ── Matrix rain ──
+const canvas = document.getElementById('matrix');
+const ctx = canvas.getContext('2d');
+let drops = [];
+function resizeMatrix() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  const cols = Math.floor(canvas.width / 20);
+  drops = Array(cols).fill(0);
+}
+resizeMatrix();
+window.addEventListener('resize', resizeMatrix);
+
+const chars = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789';
+function drawMatrix() {
+  ctx.fillStyle = 'rgba(0,0,0,0.05)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#0f0';
+  ctx.font = '16px monospace';
+  for (let i = 0; i < drops.length; i++) {
+    const c = chars[Math.floor(Math.random() * chars.length)];
+    ctx.fillText(c, i * 20, drops[i] * 20);
+    if (drops[i] * 20 > canvas.height && Math.random() > 0.975) drops[i] = 0;
+    drops[i]++;
+  }
+  matrixRaf = requestAnimationFrame(drawMatrix);
+}
+let matrixRaf = requestAnimationFrame(drawMatrix);
+
+// ── Typewriter helper ──
+const terminal = document.getElementById('terminal');
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function typeLine(text, cls = '', delay = 30) {
+  return new Promise(async resolve => {
+    const div = document.createElement('div');
+    div.className = 'line ' + cls;
+    terminal.appendChild(div);
+    let i = 0;
+    while (i < text.length) {
+      div.textContent += text[i];
+      i++;
+      await sleep(delay * (0.5 + Math.random()));
+    }
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    resolve();
+  });
+}
+
+function appendLine(text, cls = '') {
+  const div = document.createElement('div');
+  div.className = 'line ' + cls;
+  div.textContent = text;
+  terminal.appendChild(div);
+  window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+}
+
+function appendHTML(html) {
+  const div = document.createElement('div');
+  div.className = 'line';
+  div.innerHTML = html;
+  terminal.appendChild(div);
+  window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+}
+
+// ── Fake IP generation ──
+function randomIP() {
+  return `${Math.floor(Math.random()*223)+1}.${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}`;
+}
+
+// ── Main sequence ──
+async function run() {
+  // Wait a moment for suspense
+  await sleep(800);
+
+  await typeLine('══════════════════════════════════════════════════════', 'dim');
+  await typeLine('  ███████╗███████╗ ██████╗██╗   ██╗██████╗ ██╗████████╗██╗   ██╗', 'red');
+  await typeLine('  ██╔════╝██╔════╝██╔════╝██║   ██║██╔══██╗██║╚══██╔══╝╚██╗ ██╔╝', 'red');
+  await typeLine('  ███████╗█████╗  ██║     ██║   ██║██████╔╝██║   ██║    ╚████╔╝ ', 'red');
+  await typeLine('  ╚════██║██╔══╝  ██║     ██║   ██║██╔══██╗██║   ██║     ╚██╔╝  ', 'red');
+  await typeLine('  ███████║███████╗╚██████╗╚██████╔╝██║  ██║██║   ██║      ██║   ', 'red');
+  await typeLine('  ╚══════╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝   ╚═╝      ╚═╝   ', 'red');
+  await typeLine('══════════════════════════════════════════════════════', 'dim');
+  appendLine('');
+  await typeLine('[系统] 正在初始化安全扫描引擎...');
+  await sleep(300);
+  await typeLine('[系统] 加载模块: network.dll ................... 完成', 'dim');
+  await typeLine('[系统] 加载模块: scanner.dll .................. 完成', 'dim');
+  await typeLine('[系统] 加载模块: exploit.dll ................. 完成', 'dim');
+  await typeLine('[系统] 加载模块: extractor.dll ............... 完成', 'dim');
+  await sleep(500);
+  appendLine('');
+  await typeLine('>>> 正在建立安全连接...', 'yellow');
+  await sleep(600);
+  appendLine('');
+  await typeLine('目标设备信息:', 'cyan');
+  await typeLine('  ├─ 设备名称: ' + targetName + '-PC', 'white');
+  await typeLine('  ├─ 操作系统: Windows 11 Pro 24H2', 'white');
+  await typeLine('  ├─ IP 地址: ' + randomIP(), 'white');
+  await typeLine('  ├─ MAC 地址: ' + Array(6).fill(0).map(() => Math.floor(Math.random()*256).toString(16).padStart(2,'0')).join(':').toUpperCase(), 'white');
+  await typeLine('  └─ 浏览器: ' + navigator.userAgent.split(' ').pop().split('/')[0], 'white');
+  await sleep(500);
+  appendLine('');
+  await typeLine('>>> 正在扫描开放端口...', 'yellow');
+  await sleep(400);
+
+  const ports = [22, 80, 443, 445, 3306, 3389, 8080, 9090];
+  for (const p of ports) {
+    await sleep(150 + Math.random() * 200);
+    appendLine(`  端口 ${p}: ${Math.random() > 0.3 ? '开放' : '关闭'}`, Math.random() > 0.3 ? 'red' : 'dim');
+  }
+
+  await sleep(400);
+  appendLine('');
+  await typeLine('>>> 正在尝试漏洞利用 (CVE-2024-' + Math.floor(Math.random()*90000+10000) + ')...', 'yellow');
+  await sleep(1000);
+  appendLine('');
+  appendLine('  [+] Payload 已投递...', 'red');
+  await sleep(400);
+  appendLine('  [+] 权限提升中...', 'red');
+  await sleep(600);
+  appendLine('  [+] 绕过 DEP/ASLR 保护...', 'red');
+  await sleep(500);
+  appendLine('');
+  appendHTML('<span class="red">  ██████ 访问已授权 ██████</span>');
+  await sleep(800);
+
+  appendLine('');
+  await typeLine('>>> 正在提取文件系统中的数据...', 'yellow');
+  appendLine('');
+  await sleep(300);
+
+  // Progress bar animation
+  appendHTML('系统目录扫描: <span id="pct1">0%</span>');
+  appendHTML('<progress id="pg1" value="0" max="100"></progress>');
+  for (let i = 0; i <= 100; i += Math.random() * 8) {
+    if (i > 100) i = 100;
+    const pg = document.getElementById('pg1');
+    const pct = document.getElementById('pct1');
+    if (pg) pg.value = i;
+    if (pct) pct.textContent = Math.round(i) + '%';
+    await sleep(30 + Math.random() * 50);
+  }
+  appendLine('  └─ 找到 ' + Math.floor(Math.random()*5000+2000) + ' 个文件', 'dim');
+
+  appendHTML('个人数据提取: <span id="pct2">0%</span>');
+  appendHTML('<progress id="pg2" value="0" max="100"></progress>');
+  for (let i = 0; i <= 100; i += Math.random() * 6) {
+    if (i > 100) i = 100;
+    const pg = document.getElementById('pg2');
+    const pct = document.getElementById('pct2');
+    if (pg) pg.value = i;
+    if (pct) pct.textContent = Math.round(i) + '%';
+    await sleep(40 + Math.random() * 60);
+  }
+  appendLine('  └─ 提取完成', 'dim');
+
+  await sleep(500);
+  appendLine('');
+  await typeLine('══════════ 数据提取报告 ══════════', 'yellow');
+
+  // Funny fake data
+  const fakeFiles = [
+    'C:\\Users\\' + targetName + '\\自拍\\美颜开最大.jpg',
+    'C:\\Users\\' + targetName + '\\浏览器历史\\如何三天暴富.txt',
+    'C:\\Users\\' + targetName + '\\购物车\\买不起系列合集.txt',
+    'C:\\Users\\' + targetName + '\\聊天记录\\那些年撤回的消息.db',
+    'C:\\Users\\' + targetName + '\\照片\\十年前非主流发型.png',
+    'C:\\Users\\' + targetName + '\\密码本\\永远都是123456.txt',
+  ];
+
+  await sleep(300);
+  for (const f of fakeFiles) {
+    await typeLine('  📄 ' + f, 'white', 15);
+    await sleep(200);
+  }
+
+  appendLine('');
+  const fakeFinds = [
+    '浏览器搜索记录: "怎么装作很懂的样子" x247',
+    '深夜3点外卖订单: 累计消费 ¥' + Math.floor(Math.random()*50000+5000),
+    'B站观看记录: 鬼畜区深度用户 (87%时间)',
+    '手机相册分析: 截图比照片多 ' + Math.floor(Math.random()*5+3) + ' 倍',
+    '密码强度: ⭐ (全球排名倒数 0.3%)',
+    '熬夜天数: ' + Math.floor(Math.random()*200+100) + ' 天/年',
+  ];
+
+  for (const f of fakeFinds) {
+    await typeLine('  🔍 ' + f, 'magenta', 12);
+    await sleep(250);
+  }
+
+  appendLine('');
+  await sleep(600);
+
+  // Tension buildup
+  await typeLine('>>> 正在加密数据...', 'red');
+  await sleep(500);
+  await typeLine('>>> 正在上传至远程服务器...', 'red');
+  await sleep(800);
+  appendHTML('<span class="red">  ██████████ 传输完成 ██████████</span>');
+  await sleep(1200);
+
+  appendLine('');
+  appendLine('');
+  appendHTML('<span style="color:#ff0;font-size:1.2em;">>>> 按任意键查看完整报告...</span>');
+  await sleep(800);
+
+  // Wait for click/keypress
+  await new Promise(resolve => {
+    const handler = () => { document.removeEventListener('click', handler); document.removeEventListener('keydown', handler); resolve(); };
+    document.addEventListener('click', handler);
+    document.addEventListener('keydown', handler);
+  });
+
+  // THE REVEAL
+  cancelAnimationFrame(matrixRaf);
+  document.getElementById('terminal').style.display = 'none';
+  document.getElementById('matrix').style.display = 'none';
+  document.getElementById('reveal').style.display = 'block';
+  document.body.style.background = '#111';
+  document.title = '😂 整蛊成功！';
+
+  // Confetti
+  for (let i = 0; i < 80; i++) {
+    const confetti = document.createElement('div');
+    const colors = ['#f00','#0f0','#00f','#ff0','#f0f','#0ff','#f80','#ff4'];
+    confetti.style.cssText = `
+      position: fixed; z-index: 10; pointer-events: none;
+      width: ${Math.random()*12+6}px; height: ${Math.random()*8+4}px;
+      background: ${colors[Math.floor(Math.random()*colors.length)]};
+      left: ${Math.random()*100}%; top: -20px;
+      border-radius: 2px;
+      animation: fall ${Math.random()*3+2}s linear forwards;
+    `;
+    document.body.appendChild(confetti);
+    setTimeout(() => confetti.remove(), 5000);
+  }
+
+  // Add keyframe for confetti
+  const style = document.createElement('style');
+  style.textContent = '@keyframes fall { to { transform: translateY(110vh) rotate(720deg); opacity: 0; } }';
+  document.head.appendChild(style);
+}
+
+// ── Share button ──
+document.getElementById('shareBtn').addEventListener('click', () => {
+  const url = window.location.href;
+  navigator.clipboard.writeText(url).then(() => {
+    const msg = document.getElementById('copyMsg');
+    msg.style.display = 'inline';
+    setTimeout(() => msg.style.display = 'none', 2000);
+  });
+});
+
+// ── Start ──
+run();
+</script>
+</body>
+</html>
