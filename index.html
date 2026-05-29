@@ -132,8 +132,7 @@ function init(lv){
   particles=[];popups=[];
   state='play';shakeT=0;shakeA=0;
 
-  document.getElementById('score').textContent=String(score);
-  document.getElementById('coin').textContent=String(coins);
+  // HUD drawn on canvas
 }
 
 function initGame(){lives=3;score=0;init(1)}
@@ -282,7 +281,7 @@ function update(dt){
     if(!e.alive)continue;if(e.stun>0){e.stun-=dt;continue}
     e.x+=e.dir*55*dt;
     const gnd=blocks.find(b=>b.x<=e.x&&b.x+TILE>=e.x&&Math.abs(b.y-GROUND)<6);
-    if(gnd&&(e.x-13<gnd.x||e.x+13>gnd.x+gnd.w*TILE))e.dir*=-1;
+    if(gnd&&(e.x-13<gnd.x||e.x+13>gnd.x+TILE))e.dir*=-1;
   }
 
   // Popups & particles
